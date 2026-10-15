@@ -5,7 +5,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var els = {
     stage: $("stage"), sentence: $("sentence"), measure: $("measure"), ghost: $("ghost"),
-    index: $("index"), hhmm: $("hhmm"), date: $("date"),
+    outside: $("outside"), index: $("index"), hhmm: $("hhmm"), date: $("date"),
     meta: $("meta"), aside: $("aside"), day: $("day"), minute: $("minute"),
   };
 
@@ -167,6 +167,10 @@
       bits.push('<span class="v">composing…</span>');
     }
     els.meta.innerHTML = bits.join(SEP);
+
+    // What the clock perceived: for a written sentence, exactly what the model was told.
+    var outside = e.source === "model" && e.senses ? e.senses.map(function (o) { return o.label; }) : state.outside || [];
+    els.outside.innerHTML = outside.length ? part("outside", outside.join(" · ")) : "";
 
     var aside = [];
     if (e.source === "model" && e.written_at) {

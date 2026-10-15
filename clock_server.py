@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib import request as urlrequest
 from urllib.parse import parse_qs, urlparse
 
+import senses
 import timewords
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -41,12 +42,16 @@ DEFAULT_CONFIG = {
     "keep_alive": "24h",  # keep the model loaded between minutes; reloading is slow on a Nano
     "request_timeout": 75,
     "think": None,  # set false for reasoning models (qwen3 etc.) so they answer directly
-    "place": "the lab",
+    "place": "the computer science lab",
+    # Where the lab is, for sunrise/sunset and weather. Both senses stay off until set.
+    "latitude": None,
+    "longitude": None,
+    "weather": True,  # current conditions from Open-Meteo (needs internet, no API key)
     "archive_dir": "archive",
     "night_hours": [23, 7],  # the display dims between these hours
     "accent": "#ff6a2b",
     # What the model is asked to write; {place} is filled in.
-    "prompt": "Describe one small, concrete thing happening in {place} at this minute.",
+    "prompt": "Describe one small, concrete moment in {place}, coloured by what is happening outside.",
 }
 
 # Lines the clock falls back on when the model is unreachable. Each continues "At <time>,".
@@ -113,14 +118,17 @@ def minute_key(moment):
 
 # ---------------------------------------------------------------------------- the model
 
-def build_messages(cfg, lead, moment):
+def build_messages(cfg, lead, moment, observations):
     system = (
         "You write a single sentence for a clock on the wall of {place}. {prompt} "
+        "Stay true to the observations you are given; never contradict them. "
         "You will be given the first words of the sentence. Reply with only the rest of it: "
         "no quotation marks, no preamble, no emoji, no clock times or numbers, under 35 words."
     ).format(place=cfg["place"], prompt=cfg["prompt"].format(place=cfg["place"]))
-    user = "Today is {day}, {month} {date}.\nSentence so far: {lead}\nRest of the sentence:".format(
-        day=moment.strftime("%A"), month=moment.strftime("%B"), date=moment.day, lead=lead)
+    lines = ["Today is {}, {} {}.".format(moment.strftime("%A"), moment.strftime("%B"), moment.day)]
+    lines += [o["fact"] for o in observations]
+    user = "Observations:\n{}\nSentence so far: {}\nRest of the sentence:".format(
+        "\n".join("- " + line for line in lines), lead)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -223,10 +231,21 @@ def clean_continuation(text, lead):
             "the", "a", "an", "someone", "somewhere", "everyone", "nobody", "my", "our",
             "this", "that", "it", "we", "you", "they", "there", "time", "today", "here",
             "well", "oh", "so", "okay", "alright", "listen", "and", "but", "as", "while",
-            "outside", "inside", "somebody", "every", "all", "no", "one"}
+            "outside", "inside", "somebody", "every", "all", "no", "one",
+            "rain", "snow", "sunlight", "light", "darkness", "dusk", "dawn", "fog", "wind"}
             or first.lower().endswith(("ing", "ly"))):
         text = text[0].lower() + text[1:]
     return text.strip(" \"'“”")
+
+
+def contradiction(text, observations):
+    """The first word in `text` that an observation rules out (rain on a dry day), or None."""
+    for observation in observations:
+        pattern = observation.get("contradicts")
+        match = pattern and re.search(pattern, text, re.I)
+        if match:
+            return match.group(0)
+    return None
 
 
 # ---------------------------------------------------------------------------- the author
@@ -242,6 +261,14 @@ class Author(threading.Thread):
         self.backoff_until = 0
         self.last_error = None
         self.status = "starting"
+        self.senses = senses.Senses(cfg)
+
+    def observe(self, moment, fetch=True):
+        try:
+            return self.senses.observe(moment, fetch)
+        except Exception as exc:  # a broken sense must never stop the clock
+            log("senses failed:", repr(exc))
+            return []
 
     def get(self, key):
         with self.lock:
@@ -286,14 +313,20 @@ class Author(threading.Thread):
         if time.time() < self.backoff_until:
             return self.from_notebook(moment, self.last_error or "model unavailable")
         temp_c = soc_temperature()
-        messages = build_messages(self.cfg, entry["lead"], moment)
+        observations = self.observe(moment)
+        messages = build_messages(self.cfg, entry["lead"], moment, observations)
         generate = generate_openai if self.cfg["backend"] == "openai" else generate_ollama
         started = time.time()
         try:
-            raw, stats = generate(self.cfg, messages)
-            text = clean_continuation(raw, entry["lead"])
-            if len(text.split()) < 3:
-                raise ValueError("reply too short: {!r}".format(raw))
+            for attempt in range(2):
+                raw, stats = generate(self.cfg, messages)
+                text = clean_continuation(raw, entry["lead"])
+                if len(text.split()) < 3:
+                    raise ValueError("reply too short: {!r}".format(raw))
+                clash = contradiction(text, observations)
+                if not clash:
+                    break
+                log("{} contradicts observations ({}), asking again: {}".format(entry["key"], clash, text))
         except Exception as exc:  # anything at all -> the notebook; the clock must keep going
             reason = getattr(exc, "reason", None) or exc
             self.last_error = str(reason)
@@ -315,6 +348,8 @@ class Author(threading.Thread):
             # How fast the words actually arrived, so the page can replay them at that pace.
             chars_per_second=round(tps * len(raw) / stats["tokens"], 1) if tps and stats.get("tokens") else None,
             temperature=self.cfg["temperature"],
+            senses=[{"label": o["label"], "fact": o["fact"]} for o in observations],
+            attempts=attempt + 1,
             soc_temp=temp_c,
             written_at=datetime.now().isoformat(timespec="seconds"),
         )
@@ -394,6 +429,7 @@ def make_handler(cfg, author):
                 "error": author.last_error,
                 "model": cfg["model"],
                 "soc_temp": soc_temperature(),
+                "outside": [o["label"] for o in author.observe(now, fetch=False)],
                 "night": in_night(cfg, now.hour),
                 "accent": cfg["accent"],
             })
