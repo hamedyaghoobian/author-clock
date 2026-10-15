@@ -13,6 +13,45 @@
   var clockOffset = 0;      // server time minus browser time, in ms
   var typingTimer = null;
   var lastState = null;
+  var lastPollOk = 0;       // browser time of the last successful poll
+
+  // Same wording as timewords.py, so the page can show the right time on its own
+  // when the server is down instead of freezing on an old minute.
+  var ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+  var TENS = ["", "", "twenty", "thirty", "forty", "fifty"];
+  function numberWords(n) {
+    return n < 20 ? ONES[n] : TENS[Math.floor(n / 10)] + (n % 10 ? "-" + ONES[n % 10] : "");
+  }
+  function hourWords(h) {
+    h = h % 24;
+    return h === 0 ? "midnight" : h === 12 ? "noon" : numberWords(h % 12);
+  }
+  function timePhrase(h, m) {
+    if (m === 0) { var n = hourWords(h); return n === "midnight" || n === "noon" ? n : n + " o'clock"; }
+    if (m === 15) return "quarter past " + hourWords(h);
+    if (m === 30) return "half past " + hourWords(h);
+    if (m === 45) return "quarter to " + hourWords(h + 1);
+    var count = m < 30 ? m : 60 - m, rel = m < 30 ? "past" : "to", target = m < 30 ? h : h + 1;
+    var amount = count % 5 === 0 ? numberWords(count) : count === 1 ? "one minute" : numberWords(count) + " minutes";
+    return amount + " " + rel + " " + hourWords(target);
+  }
+  function daypart(h) {
+    if (h >= 1 && h < 5) return "in the small hours";
+    if (h >= 5 && h < 12) return "in the morning";
+    if (h >= 12 && h < 17) return "in the afternoon";
+    if (h >= 17 && h < 21) return "in the evening";
+    return "at night";
+  }
+  function minuteKey(t) {
+    return t.getFullYear() + "-" + pad(t.getMonth() + 1) + "-" + pad(t.getDate()) +
+      "T" + pad(t.getHours()) + ":" + pad(t.getMinutes());
+  }
+  function localEntry(t) {
+    var phrase = timePhrase(t.getHours(), t.getMinutes());
+    var when = /noon|midnight/.test(phrase) ? phrase : phrase + " " + daypart(t.getHours());
+    return { key: minuteKey(t), lead: "At " + when + ",", phrase: when, text: "", source: "local", voice: "—" };
+  }
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function now() { return new Date(Date.now() + clockOffset); }
@@ -149,6 +188,13 @@
     var mod = t.getHours() * 60 + t.getMinutes();
     els.index.textContent = "№ " + ("000" + mod).slice(-4) + " / 1440";
     els.day.style.transform = "scaleX(" + (mod / 1440) + ")";
+
+    // Server silent for a few seconds: never leave an old minute on the wall.
+    var key = minuteKey(t);
+    if (Date.now() - lastPollOk > 3000 && (!shownKey || shownKey.split("|")[0] !== key)) {
+      render(localEntry(t));
+      shownKey = key + "|local";
+    }
   }
 
   // The accent hairline sweeps once per minute; CSS does the animating.
@@ -175,6 +221,7 @@
         var rtt = Date.now() - sent;
         clockOffset = state.now * 1000 - (sent + rtt / 2);
         lastState = state;
+        lastPollOk = Date.now();
         document.body.classList.toggle("night", !!state.night);
         if (state.accent) document.documentElement.style.setProperty("--accent", state.accent);
         var key = state.entry.key + "|" + state.entry.source;
