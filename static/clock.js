@@ -5,7 +5,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var els = {
     stage: $("stage"), sentence: $("sentence"), measure: $("measure"), ghost: $("ghost"),
-    voice: $("voice"), index: $("index"), hhmm: $("hhmm"), date: $("date"),
+    index: $("index"), hhmm: $("hhmm"), date: $("date"),
     meta: $("meta"), aside: $("aside"), day: $("day"), minute: $("minute"),
   };
 
@@ -50,7 +50,7 @@
   function localEntry(t) {
     var phrase = timePhrase(t.getHours(), t.getMinutes());
     var when = /noon|midnight/.test(phrase) ? phrase : phrase + " " + daypart(t.getHours());
-    return { key: minuteKey(t), lead: "At " + when + ",", phrase: when, text: "", source: "local", voice: "—" };
+    return { key: minuteKey(t), lead: "At " + when + ",", phrase: when, text: "", source: "local" };
   }
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
@@ -103,7 +103,6 @@
       s.classList.remove("fading");
       typeOut(entry);
     }, shownKey ? 650 : 0);
-    els.voice.textContent = entry.voice || "—";
   }
 
   // Reveal words at the pace the model actually produced them (capped so the

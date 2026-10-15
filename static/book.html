@@ -50,7 +50,7 @@
       var lead = esc(e.lead).replace(esc(e.phrase), '<span class="when">' + esc(e.phrase) + "</span>");
       return '<div class="entry' + (e.source === "notebook" ? " notebook-entry" : "") + '">' +
         "<time>" + e.key.slice(11) + "</time><p>" + lead + " " + esc(e.text) +
-        "<small>" + esc(e.voice) + (e.source === "model" ? " · " + esc(e.model) : "") + "</small></p></div>";
+        "<small>" + (e.source === "model" ? esc(e.model) : "the notebook") + "</small></p></div>";
     }).join("");
   });
 })();

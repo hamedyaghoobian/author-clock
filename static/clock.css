@@ -53,7 +53,7 @@ html, body {
   color: var(--ink);
 }
 
-.rail.top { padding-bottom: 1.2vw; border-bottom: 1px solid var(--faint); }
+.rail.top { grid-template-columns: 1fr auto; padding-bottom: 1.2vw; border-bottom: 1px solid var(--faint); }
 .rail.bottom {
   grid-template-columns: 1fr auto;
   padding-top: 1.2vw;
@@ -63,13 +63,11 @@ html, body {
 
 .cell { display: flex; align-items: baseline; white-space: nowrap; overflow: hidden; }
 .cell > * + * { margin-left: 1.6vw; }  /* not flex gap: the Nano's Chromium may predate it */
-.cell.center { justify-content: center; }
 .cell.right { justify-content: flex-end; }
 
 .brand { font-weight: 600; }
 .dim { color: var(--dim); }
 .digital { font-variant-numeric: tabular-nums; font-size: 1.15em; }
-#voice { color: var(--accent); }
 
 .rail .k { color: var(--dim); }
 .rail .v { color: var(--ink); }

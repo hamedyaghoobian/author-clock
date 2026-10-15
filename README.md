@@ -2,7 +2,7 @@
 
 A wall clock that doesn't show the time. It writes it.
 
-Every minute, a small language model running on a Jetson Nano on the lab wall writes one sentence that starts with the time, *"At quarter past two in the afternoon, …"*, in one of several rotating voices: an anthropologist's field notes, a historian in 2126 looking back at this exact minute, the clock's own machine diary (which knows the chip's real temperature), an unreliable oracle. Each sentence is on screen for sixty seconds and is never shown again.
+Every minute, a small language model running on a Jetson Nano on the lab wall writes one sentence that starts with the time, *"At quarter past two in the afternoon, …"*. Each sentence is on screen for sixty seconds and is never shown again.
 
 The display doesn't hide how it works. The rails along the top and bottom show which model wrote the line, how many tokens it took, how fast they came, and how many seconds before the minute existed the sentence was written. Words type in at the pace the model actually produced them. A hairline sweeps across each minute, and a ribbon shows how much of the day has passed. Every sentence is also saved, so the clock writes a 1,440-sentence book each day.
 
@@ -74,8 +74,8 @@ Copy `config.example.json` to `config.json`. Every key in `DEFAULT_CONFIG` at th
 | key | what it does |
 | --- | --- |
 | `model` | Any Ollama model tag. `gemma3:1b` is the default; `qwen2.5:1.5b` and `llama3.2:1b` also fit on the Nano. For a reasoning model (e.g. qwen3), also set `"think": false`. |
-| `place` | What the voices call the room ("the lab", "the third-floor makerspace", …). |
-| `voices` | The list of personas. Each has a `label` and an `instruction`, which can use `{place}`, `{machine}` and `{temp}` (the chip's real temperature). Voices rotate minute by minute. |
+| `place` | What the clock calls the room ("the lab", "the third-floor makerspace", …). |
+| `prompt` | What the model is asked to write. `{place}` is filled in. |
 | `temperature` | Higher means stranger sentences. |
 | `night_hours` | The display dims between these hours. |
 | `accent` | The highlight colour. |
@@ -84,8 +84,7 @@ The env vars `AUTHOR_CLOCK_MODEL`, `AUTHOR_CLOCK_BACKEND_URL` and `AUTHOR_CLOCK_
 
 ## Ideas for students
 
-- **New voices.** A voice for each person in the lab, a voice from the building itself, a voice that only speaks in questions.
-- **Sensors in the prompt.** The machine diary already reads the chip's temperature. Add a light sensor, a mic level, a door counter, or the room's CO₂, so the sentence describes what is actually happening.
+- **Sensors in the prompt.** Add a light sensor, a mic level, a door counter, or the room's CO₂, so the sentence describes what is actually happening.
 - **The book.** Print a day's sentences as a zine. Compare a Tuesday with a Saturday. Track how often the model mentions coffee.
 - **Two clocks arguing.** A second Nano that replies to the first one's sentence.
 - **Model swap day.** Run a different model each week and label it on the rail. Students vote on which one "writes time" best.

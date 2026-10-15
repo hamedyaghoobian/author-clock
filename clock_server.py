@@ -42,48 +42,11 @@ DEFAULT_CONFIG = {
     "request_timeout": 75,
     "think": None,  # set false for reasoning models (qwen3 etc.) so they answer directly
     "place": "the lab",
-    "machine": "a Jetson Nano with four gigabytes of memory and a small fan",
     "archive_dir": "archive",
     "night_hours": [23, 7],  # the display dims between these hours
     "accent": "#ff6a2b",
-    "voices": [
-        {
-            "id": "field-notes",
-            "label": "Field notes",
-            "instruction": "You are an anthropologist quietly taking field notes in {place}. "
-                           "Describe one small, concrete thing happening at this minute.",
-        },
-        {
-            "id": "dispatch-2126",
-            "label": "Dispatch from 2126",
-            "instruction": "You are a historian in the year 2126 describing this exact minute in "
-                           "{place} from old records. Be specific and a little wistful.",
-        },
-        {
-            "id": "machine-diary",
-            "label": "Machine diary",
-            "instruction": "You are the computer running this clock: {machine}. Your processor is "
-                           "at {temp}. Write a diary line about this minute from your point of view.",
-        },
-        {
-            "id": "forecast",
-            "label": "Temporal forecast",
-            "instruction": "You are a weather forecaster who forecasts the mood of time instead of "
-                           "the weather. Give the outlook for {place}.",
-        },
-        {
-            "id": "oracle",
-            "label": "Unreliable oracle",
-            "instruction": "You are a slightly unreliable oracle. Predict, with total confidence, "
-                           "something oddly specific that will happen in {place} in the next minute.",
-        },
-        {
-            "id": "regional-manager",
-            "label": "Regional manager",
-            "instruction": "You are Michael Scott making an announcement to {place}: overconfident, "
-                           "awkward, accidentally heartfelt.",
-        },
-    ],
+    # What the model is asked to write; {place} is filled in.
+    "prompt": "Describe one small, concrete thing happening in {place} at this minute.",
 }
 
 # Lines the clock falls back on when the model is unreachable. Each continues "At <time>,".
@@ -148,23 +111,14 @@ def minute_key(moment):
     return moment.strftime("%Y-%m-%dT%H:%M")
 
 
-def voice_for(cfg, moment):
-    voices = cfg["voices"]
-    # A fixed voice per minute: the same minute always gets the same voice, and the
-    # sequence walks through all voices before repeating.
-    return voices[(moment.hour * 60 + moment.minute) % len(voices)]
-
-
 # ---------------------------------------------------------------------------- the model
 
-def build_messages(cfg, voice, lead, moment, temp_c):
-    temp = "{:.0f} degrees Celsius".format(temp_c) if temp_c is not None else "a comfortable temperature"
-    instruction = voice["instruction"].format(place=cfg["place"], machine=cfg["machine"], temp=temp)
+def build_messages(cfg, lead, moment):
     system = (
-        "You write a single sentence for a clock on the wall of {place}. {instruction} "
+        "You write a single sentence for a clock on the wall of {place}. {prompt} "
         "You will be given the first words of the sentence. Reply with only the rest of it: "
         "no quotation marks, no preamble, no emoji, no clock times or numbers, under 35 words."
-    ).format(place=cfg["place"], instruction=instruction)
+    ).format(place=cfg["place"], prompt=cfg["prompt"].format(place=cfg["place"]))
     user = "Today is {day}, {month} {date}.\nSentence so far: {lead}\nRest of the sentence:".format(
         day=moment.strftime("%A"), month=moment.strftime("%B"), date=moment.day, lead=lead)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -312,13 +266,11 @@ class Author(threading.Thread):
 
     def skeleton(self, moment):
         lead, phrase = timewords.lead(moment.hour, moment.minute)
-        voice = voice_for(self.cfg, moment)
         return {
             "key": minute_key(moment),
             "lead": lead,
             "phrase": phrase,
             "text": "",
-            "voice": voice["label"],
             "model": self.cfg["model"],
             "source": "pending",
         }
@@ -326,16 +278,15 @@ class Author(threading.Thread):
     def from_notebook(self, moment, reason):
         entry = self.skeleton(moment)
         rng = random.Random(entry["key"])
-        entry.update(text=rng.choice(NOTEBOOK), source="notebook", voice="The notebook", reason=reason)
+        entry.update(text=rng.choice(NOTEBOOK), source="notebook", reason=reason)
         return entry
 
     def compose(self, moment):
         entry = self.skeleton(moment)
         if time.time() < self.backoff_until:
             return self.from_notebook(moment, self.last_error or "model unavailable")
-        voice = voice_for(self.cfg, moment)
         temp_c = soc_temperature()
-        messages = build_messages(self.cfg, voice, entry["lead"], moment, temp_c)
+        messages = build_messages(self.cfg, entry["lead"], moment)
         generate = generate_openai if self.cfg["backend"] == "openai" else generate_ollama
         started = time.time()
         try:
@@ -367,7 +318,7 @@ class Author(threading.Thread):
             soc_temp=temp_c,
             written_at=datetime.now().isoformat(timespec="seconds"),
         )
-        log("{} [{}] {:.1f}s  {} {}".format(entry["key"], voice["id"], elapsed, entry["lead"], text))
+        log("{} {:.1f}s  {} {}".format(entry["key"], elapsed, entry["lead"], text))
         return entry
 
     def run(self):
