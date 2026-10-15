@@ -2,6 +2,7 @@
 # One-time setup on the Jetson Nano (JetPack 4 / Ubuntu 18.04). Run from the repo:
 #   ./deploy/setup-jetson.sh            # uses gemma3:1b
 #   MODEL=qwen2.5:1.5b ./deploy/setup-jetson.sh
+#   TIMEZONE=America/Chicago ./deploy/setup-jetson.sh   # default America/New_York
 set -e
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL="${MODEL:-gemma3:1b}"
@@ -14,6 +15,9 @@ sudo apt-get install -y chromium-browser || echo "chromium-browser unavailable; 
 # Nicer type if available; the page falls back to DejaVu Serif without them.
 sudo apt-get install -y fonts-ebgaramond || true
 sudo apt-get install -y fonts-ibm-plex || true
+
+echo "== timezone (the clock tells local time)"
+sudo timedatectl set-timezone "${TIMEZONE:-America/New_York}"
 
 echo "== power: max performance mode (all 4 cores, 10 W)"
 sudo nvpmodel -m 0 || true

@@ -58,7 +58,25 @@ def sun_times(day_local, lat, lon):
     return _sun_days[key]
 
 
+# Light words each phase rules out; the author asks again if a sentence uses them.
+_NOT_NIGHT = r"\b(moon\w*|stars?|starlight|midnight|darkness|night\w*)\b"
+_NOT_SUNSET = r"\b(sunset|setting sun|dusk|twilight|evening light|sun ?rise|dawn)\b"
+_NOT_DAY = r"\b(sunlight|sunshine|sunbeams?|sunlit|midday|afternoon sun|morning sun)\b"
+CONTRADICTS = {
+    "night": _NOT_DAY + "|" + _NOT_SUNSET,
+    "daylight": _NOT_NIGHT + "|" + _NOT_SUNSET,
+    "high sun": _NOT_NIGHT + "|" + _NOT_SUNSET,
+}
+
+
 def sense_sun(now_local, lat, lon):
+    observation = _sun_phase(now_local, lat, lon)
+    if observation["label"] in CONTRADICTS:
+        observation["contradicts"] = CONTRADICTS[observation["label"]]
+    return observation
+
+
+def _sun_phase(now_local, lat, lon):
     elevation = solar_elevation(now_local.astimezone(timezone.utc), lat, lon)
     rise, set_ = sun_times(now_local, lat, lon)
 

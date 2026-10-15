@@ -4,8 +4,8 @@
   "backend_url": "http://127.0.0.1:11434",
   "temperature": 0.9,
   "place": "the computer science lab",
-  "latitude": null,
-  "longitude": null,
+  "latitude": 40.6084,
+  "longitude": -75.4902,
   "weather": true,
   "night_hours": [23, 7],
   "accent": "#ff6a2b"
