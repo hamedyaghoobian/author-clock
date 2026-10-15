@@ -1,0 +1,15 @@
+# setup-jetson.sh fills in __USER__ and __DIR__ and installs this to
+# /etc/systemd/system/author-clock.service
+[Unit]
+Description=Author Clock server
+After=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=/usr/bin/python3 __DIR__/clock_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

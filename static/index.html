@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Author Clock</title>
+<link rel="stylesheet" href="clock.css">
+</head>
+<body>
+<div class="frame">
+  <header class="rail top">
+    <div class="cell">
+      <span class="brand">Author Clock</span>
+      <span class="dim" id="index">№ ———— / 1440</span>
+    </div>
+    <div class="cell center"><span class="dim">voice</span> <span id="voice">—</span></div>
+    <div class="cell right">
+      <span id="date" class="dim"></span>
+      <span id="hhmm" class="digital">--:--</span>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="ghost" id="ghost" aria-hidden="true"></div>
+    <p class="sentence" id="sentence" aria-live="polite"></p>
+    <p class="sentence measure" id="measure" aria-hidden="true"></p>
+  </main>
+
+  <footer class="rail bottom">
+    <div class="cell" id="meta">waking up</div>
+    <div class="cell right" id="aside">this sentence exists for one minute</div>
+  </footer>
+
+  <div class="ribbon" aria-hidden="true">
+    <div class="day" id="day"></div>
+    <div class="minute" id="minute"></div>
+  </div>
+</div>
+<script src="clock.js"></script>
+</body>
+</html>

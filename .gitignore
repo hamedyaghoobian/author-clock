@@ -44,3 +44,6 @@ Thumbs.db
 
 # Logs
 *.log 
+# Author Clock
+archive/
+config.json

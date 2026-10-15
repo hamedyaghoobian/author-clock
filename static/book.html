@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Day's Book</title>
+<link rel="stylesheet" href="clock.css">
+<style>
+  html, body { overflow: auto; cursor: auto; height: auto; }
+  .book { max-width: 46rem; margin: 0 auto; padding: 4rem 1rem 6rem; }
+  .book header { font: 400 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+                 color: var(--dim); border-bottom: 1px solid var(--faint); padding-bottom: 1rem;
+                 display: flex; justify-content: space-between; gap: 1rem; }
+  .book header a { color: var(--ink); }
+  .book h1 { font: italic 400 3rem/1.1 var(--serif); margin: 2.5rem 0 2rem; }
+  .entry { display: grid; grid-template-columns: 4.5rem 1fr; gap: 1rem; padding: .9rem 0;
+           border-bottom: 1px solid var(--faint); }
+  .entry time { font: 400 12px/2 var(--mono); color: var(--dim); }
+  .entry p { margin: 0; font: 400 1.25rem/1.45 var(--serif); }
+  .entry .when { color: var(--accent); font-style: italic; }
+  .entry small { display: block; margin-top: .3rem; font: 400 11px/1.5 var(--mono);
+                 letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .notebook-entry p { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="book">
+  <header>
+    <span>Author Clock — the day's book</span>
+    <span><a href="#" id="prev">← prev</a> &nbsp; <a href="#" id="next">next →</a> &nbsp; <a href="/">clock</a></span>
+  </header>
+  <h1 id="title">Today</h1>
+  <div id="entries"></div>
+</div>
+<script>
+(function () {
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function iso(d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  var date = new URLSearchParams(location.search).get("date") || iso(new Date());
+  function shift(days) { var d = new Date(date + "T12:00:00"); d.setDate(d.getDate() + days); return "?date=" + iso(d); }
+  document.getElementById("prev").href = shift(-1);
+  document.getElementById("next").href = shift(1);
+  fetch("/api/book?date=" + date).then(function (r) { return r.json(); }).then(function (book) {
+    var d = new Date(date + "T12:00:00");
+    var n = book.entries.length;
+    document.getElementById("title").textContent =
+      d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) +
+      " — " + n + (n === 1 ? " sentence" : " sentences");
+    document.getElementById("entries").innerHTML = book.entries.map(function (e) {
+      var lead = esc(e.lead).replace(esc(e.phrase), '<span class="when">' + esc(e.phrase) + "</span>");
+      return '<div class="entry' + (e.source === "notebook" ? " notebook-entry" : "") + '">' +
+        "<time>" + e.key.slice(11) + "</time><p>" + lead + " " + esc(e.text) +
+        "<small>" + esc(e.voice) + (e.source === "model" ? " · " + esc(e.model) : "") + "</small></p></div>";
+    }).join("");
+  });
+})();
+</script>
+</body>
+</html>

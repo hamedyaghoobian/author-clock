@@ -1,0 +1,9 @@
+{
+  "model": "gemma3:1b",
+  "backend": "ollama",
+  "backend_url": "http://127.0.0.1:11434",
+  "temperature": 0.9,
+  "place": "the lab",
+  "night_hours": [23, 7],
+  "accent": "#ff6a2b"
+}

@@ -1,0 +1,179 @@
+/* Author Clock — wall display. Tuned for a 1920x1080 panel driven by a Jetson Nano:
+   only opacity/transform animate, nothing blurs, nothing repaints every frame. */
+
+:root {
+  --bg: #0c0b09;
+  --ink: #ece6da;
+  --dim: #7d776c;
+  --faint: #2a2723;
+  --ghost: #12110e;
+  --accent: #ff6a2b;
+  --serif: "Newsreader", "Fraunces", "EB Garamond", "Iowan Old Style", "Palatino Linotype",
+           Georgia, "DejaVu Serif", serif;
+  --mono: "IBM Plex Mono", "JetBrains Mono", "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+  --gutter: 4vw;
+}
+
+body.night {
+  --ink: #8f897e;
+  --dim: #4a463f;
+  --faint: #1d1b18;
+  --ghost: #0e0d0b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  cursor: none;
+}
+
+.frame {
+  position: relative;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: calc(var(--gutter) * 0.6) var(--gutter) calc(var(--gutter) * 0.75);
+}
+
+/* ---- rails ------------------------------------------------------------- */
+
+.rail {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+  gap: 2vw;
+  font: 400 clamp(11px, 0.95vw, 22px)/1.4 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.rail.top { padding-bottom: 1.2vw; border-bottom: 1px solid var(--faint); }
+.rail.bottom {
+  grid-template-columns: 1fr auto;
+  padding-top: 1.2vw;
+  border-top: 1px solid var(--faint);
+  color: var(--dim);
+}
+
+.cell { display: flex; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.cell > * + * { margin-left: 1.6vw; }  /* not flex gap: the Nano's Chromium may predate it */
+.cell.center { justify-content: center; }
+.cell.right { justify-content: flex-end; }
+
+.brand { font-weight: 600; }
+.dim { color: var(--dim); }
+.digital { font-variant-numeric: tabular-nums; font-size: 1.15em; }
+#voice { color: var(--accent); }
+
+.rail .k { color: var(--dim); }
+.rail .v { color: var(--ink); }
+.rail .sep { color: var(--faint); }
+
+/* ---- stage ------------------------------------------------------------- */
+
+.stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 0;
+  padding: 3vw 0;
+  overflow: hidden;
+}
+
+.ghost {
+  position: absolute;
+  right: -1vw;
+  bottom: -3vw;
+  font: 300 34vw/0.8 var(--mono);
+  letter-spacing: -0.06em;
+  color: var(--ghost);
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+
+.sentence {
+  position: relative;
+  margin: 0;
+  max-width: 82vw;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 5vw;
+  line-height: 1.12;
+  letter-spacing: -0.012em;
+  text-wrap: pretty;
+  transition: opacity 700ms ease;
+}
+
+.sentence.fading { opacity: 0; }
+
+.sentence .when {
+  color: var(--accent);
+  font-style: italic;
+}
+
+.sentence .word {
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+.sentence .word.on { opacity: 1; }
+
+.caret {
+  display: inline-block;
+  width: 0.08em;
+  height: 0.82em;
+  margin-left: 0.08em;
+  vertical-align: -0.06em;
+  background: var(--accent);
+  animation: blink 1.05s steps(1) infinite;
+}
+.sentence.done .caret { animation-duration: 2.4s; opacity: 0.6; }
+
+@keyframes blink { 50% { opacity: 0; } }
+
+.measure {
+  position: absolute;
+  visibility: hidden;
+  left: 0;
+  top: 0;
+}
+
+.notebook .sentence .body { color: var(--dim); }
+
+/* ---- ribbon: the whole day along the bottom edge ------------------------ */
+
+.ribbon {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--gutter) * 0.35);
+  height: 3px;
+  background:
+    repeating-linear-gradient(to right, var(--dim) 0 1px, transparent 1px calc(100% / 24)),
+    var(--faint);
+  overflow: hidden;
+}
+
+.ribbon .day {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: var(--dim);
+  opacity: 0.55;
+}
+
+.ribbon .minute {
+  position: absolute;
+  top: 1px; right: 0; left: 0;
+  height: 1px;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: var(--accent);
+}
