@@ -5,11 +5,14 @@ The server does two jobs:
   * a background "author" thread asks the model for the NEXT minute's sentence while the
     current one is on screen, so the display never waits on generation (which takes
     10-30 s on a Jetson Nano's CPU);
-  * a tiny HTTP server hands the page in static/ the current sentence as JSON.
+  * a tiny HTTP server hands the page in static/ the current sentence as JSON, and takes
+    words from people in the lab (talk-back, see talkback.py).
 
 Standard library only, Python 3.6+, so it runs on a stock Jetson Nano (JetPack 4).
 """
+import collections
 import copy
+import math
 import json
 import os
 import random
@@ -24,13 +27,14 @@ from urllib import request as urlrequest
 from urllib.parse import parse_qs, urlparse
 
 import senses
+import talkback
 import timewords
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(ROOT, "static")
 
 DEFAULT_CONFIG = {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",  # reachable on the lab network, for the talk-back page
     "port": 8340,
     # "ollama" talks to Ollama's /api/chat. "openai" talks to any OpenAI-compatible
     # /v1/chat/completions server, e.g. llama.cpp's llama-server.
@@ -50,8 +54,23 @@ DEFAULT_CONFIG = {
     "archive_dir": "archive",
     "night_hours": [23, 7],  # the display dims between these hours
     "accent": "#ff6a2b",
+    "talk_back": True,  # QR code + /say page where people give the clock a word
+    "public_url": None,  # e.g. "http://authorclock.local:8340" if the auto-detected address is wrong
+    # Things in the room. Each minute the clock picks one it hasn't written about lately and
+    # nudges the model toward it, so the day's sentences wander around the lab. (Showing a
+    # 1B model its earlier sentences makes it copy them, so memory steers instead.)
+    "things": [
+        "the whiteboard", "a half-erased diagram", "a tangle of cables", "the server rack",
+        "a 3D printer", "a sticky note on a monitor", "a stack of library books", "a backpack",
+        "a cold cup of coffee", "the fluorescent lights", "a terminal window", "a soldering iron",
+        "a Raspberry Pi", "the door", "an empty chair", "headphones", "a laptop's fan",
+        "a compiler error", "a printer", "the window", "a professor", "two students arguing",
+        "a keyboard", "a robot arm", "the recycling bin", "a forgotten jacket", "an Arduino",
+        "a whiteboard marker", "a phone face down on a desk", "the radiator",
+    ],
+    "watts": 10,  # the Nano's power while thinking, for the midnight tally (10 W mode)
     # What the model is asked to write; {place} is filled in.
-    "prompt": "Describe one small, concrete moment in {place}, coloured by what is happening outside.",
+    "prompt": "Write about something happening in {place} right now, coloured by what is happening outside.",
 }
 
 # Lines the clock falls back on when the model is unreachable. Each continues "At <time>,".
@@ -118,7 +137,7 @@ def minute_key(moment):
 
 # ---------------------------------------------------------------------------- the model
 
-def build_messages(cfg, lead, moment, observations):
+def build_messages(cfg, lead, moment, observations, thing=None, offering=None):
     system = (
         "You write a single sentence for a clock on the wall of {place}. {prompt} "
         "Stay true to the observations you are given; never contradict them. "
@@ -127,6 +146,10 @@ def build_messages(cfg, lead, moment, observations):
     ).format(place=cfg["place"], prompt=cfg["prompt"].format(place=cfg["place"]))
     lines = ["Today is {}, {} {}.".format(moment.strftime("%A"), moment.strftime("%B"), moment.day)]
     lines += [o["fact"] for o in observations]
+    if offering:
+        lines.append('Someone in the lab has given you the word "{}". Use it in the sentence.'.format(offering))
+    elif thing:
+        lines.append("Something in the room to notice: {}.".format(thing))
     user = "Observations:\n{}\nSentence so far: {}\nRest of the sentence:".format(
         "\n".join("- " + line for line in lines), lead)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -138,6 +161,18 @@ def _post_stream(url, payload, timeout):
     return urlrequest.urlopen(req, timeout=timeout)
 
 
+def _token_probs(items):
+    """[(token, probability)] from a backend's logprobs list; anything odd is skipped, since
+    confidence is decoration and must never cost a sentence."""
+    out = []
+    for lp in items if isinstance(items, list) else []:
+        try:
+            out.append((str(lp["token"]), math.exp(float(lp["logprob"]))))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+    return out
+
+
 def generate_ollama(cfg, messages):
     payload = {
         "model": cfg["model"],
@@ -145,10 +180,11 @@ def generate_ollama(cfg, messages):
         "stream": True,
         "keep_alive": cfg["keep_alive"],
         "options": {"temperature": cfg["temperature"], "num_predict": cfg["max_tokens"]},
+        "logprobs": True,  # older Ollama ignores this; the page then shows plain type
     }
     if cfg.get("think") is not None:
         payload["think"] = cfg["think"]
-    text, stats, first = [], {}, None
+    text, stats, first, probs = [], {}, None, []
     with _post_stream(cfg["backend_url"].rstrip("/") + "/api/chat", payload, cfg["request_timeout"]) as resp:
         for raw in resp:
             if not raw.strip():
@@ -161,6 +197,7 @@ def generate_ollama(cfg, messages):
                 if first is None:
                     first = time.time()
                 text.append(piece)
+            probs.extend(_token_probs(chunk.get("logprobs")))
             if chunk.get("done"):
                 stats = chunk
     eval_count = stats.get("eval_count")
@@ -169,6 +206,7 @@ def generate_ollama(cfg, messages):
         "tokens": eval_count,
         "tokens_per_second": round(eval_count / eval_seconds, 1) if eval_count and eval_seconds else None,
         "first_token_at": first,
+        "token_probs": probs,
     }
 
 
@@ -179,8 +217,9 @@ def generate_openai(cfg, messages):
         "stream": True,
         "temperature": cfg["temperature"],
         "max_tokens": cfg["max_tokens"],
+        "logprobs": True,
     }
-    text, first, pieces = [], None, 0
+    text, first, pieces, probs = [], None, 0, []
     url = cfg["backend_url"].rstrip("/") + "/v1/chat/completions"
     with _post_stream(url, payload, cfg["request_timeout"]) as resp:
         for raw in resp:
@@ -190,7 +229,9 @@ def generate_openai(cfg, messages):
             data = line[5:].strip()
             if data == "[DONE]":
                 break
-            delta = json.loads(data)["choices"][0].get("delta", {}).get("content") or ""
+            choice = json.loads(data)["choices"][0]
+            delta = choice.get("delta", {}).get("content") or ""
+            probs.extend(_token_probs((choice.get("logprobs") or {}).get("content")))
             if delta:
                 if first is None:
                     first = time.time()
@@ -201,6 +242,7 @@ def generate_openai(cfg, messages):
         "tokens": pieces,
         "tokens_per_second": round(pieces / seconds, 1) if pieces and seconds else None,
         "first_token_at": first,
+        "token_probs": probs,
     }
 
 
@@ -238,6 +280,46 @@ def clean_continuation(text, lead):
     return text.strip(" \"'“”")
 
 
+def word_confidences(text, token_probs):
+    """How sure the model was of each word in `text` (split on spaces): the probability of
+    the least likely token inside it, or None where a word can't be matched."""
+    if not token_probs:
+        return None
+    produced = "".join(tok for tok, _ in token_probs)
+    char_probs = []
+    for tok, prob in token_probs:
+        char_probs.extend([prob] * len(tok))
+    lower, pos, out = produced.lower(), 0, []
+    for word in text.split(" "):
+        core = re.sub(r"^[^\w]+|[^\w]+$", "", word).lower()
+        at = lower.find(core, pos) if core else -1
+        if at < 0:
+            out.append(None)
+            continue
+        out.append(round(min(char_probs[at:at + len(core)]), 3))
+        pos = at + len(core)
+    return out
+
+
+STOPWORDS = set("""a an the of in on at to and or but with as by for from into onto over under
+its it is are was were be been his her their they them this that these those there here
+while through across against up down out off one single some""".split())
+
+
+def content_words(text):
+    return {w for w in re.findall(r"[a-z']+", text.lower()) if w not in STOPWORDS and len(w) > 2}
+
+
+def repeats(text, earlier):
+    """The earlier sentence `text` mostly re-says (half its content words or more), or None."""
+    mine = content_words(text)
+    for line in earlier:
+        theirs = content_words(line)
+        if mine and theirs and len(mine & theirs) / float(min(len(mine), len(theirs))) >= 0.5:
+            return line
+    return None
+
+
 def contradiction(text, observations):
     """The first word in `text` that an observation rules out (rain on a dry day), or None."""
     for observation in observations:
@@ -262,6 +344,46 @@ class Author(threading.Thread):
         self.last_error = None
         self.status = "starting"
         self.senses = senses.Senses(cfg)
+        self.offerings = talkback.Offerings(cfg) if cfg.get("talk_back") else None
+        # Today's sentences, so the clock can avoid repeating itself. Forgotten at midnight.
+        self.memory_day = datetime.now().strftime("%Y-%m-%d")
+        self.memory = self.load_memory(self.memory_day)
+
+    def load_memory(self, day):
+        path = os.path.join(self.cfg["archive_dir"], day + ".jsonl")
+        texts = collections.OrderedDict()
+        try:
+            with open(path) as fh:
+                for line in fh:
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    if entry.get("source") == "model":
+                        texts[entry["key"]] = entry["text"]
+        except OSError:
+            pass
+        return [texts[k] for k in sorted(texts)]
+
+    def remember(self, moment, text):
+        day = moment.strftime("%Y-%m-%d")
+        if day != self.memory_day:
+            self.memory_day, self.memory = day, []
+        self.memory.append(text)
+
+    def pick_thing(self, moment):
+        """Something in the room the clock hasn't mentioned in its last 30 sentences."""
+        things = self.cfg.get("things") or []
+        if not things:
+            return None
+        said = content_words(" ".join(self.recent(moment, 30)))
+        fresh = [t for t in things if not content_words(t) & said] or things
+        return random.Random(minute_key(moment)).choice(fresh)
+
+    def recent(self, moment, count):
+        if moment.strftime("%Y-%m-%d") != self.memory_day:
+            return []
+        return self.memory[-count:] if count else []
 
     def observe(self, moment, fetch=True):
         try:
@@ -314,20 +436,32 @@ class Author(threading.Thread):
             return self.from_notebook(moment, self.last_error or "model unavailable")
         temp_c = soc_temperature()
         observations = self.observe(moment)
-        messages = build_messages(self.cfg, entry["lead"], moment, observations)
+        offering = self.offerings.take() if self.offerings else None
+        checked = self.recent(moment, 12)
+        thing = self.pick_thing(moment)
+        messages = build_messages(self.cfg, entry["lead"], moment, observations, thing, offering)
         generate = generate_openai if self.cfg["backend"] == "openai" else generate_ollama
         started = time.time()
         try:
+            # One second chance if the sentence breaks a rule; a Nano has time for two tries.
             for attempt in range(2):
                 raw, stats = generate(self.cfg, messages)
                 text = clean_continuation(raw, entry["lead"])
                 if len(text.split()) < 3:
                     raise ValueError("reply too short: {!r}".format(raw))
-                clash = contradiction(text, observations)
-                if not clash:
+                problem = contradiction(text, observations)
+                if problem:
+                    problem = "contradicts observations ({})".format(problem)
+                elif offering and not talkback.uses_word(text, offering):
+                    problem = 'left out "{}"'.format(offering)
+                elif repeats(text, checked):
+                    problem = "repeats: " + repeats(text, checked)
+                if not problem:
                     break
-                log("{} contradicts observations ({}), asking again: {}".format(entry["key"], clash, text))
+                log("{} {}, asking again: {}".format(entry["key"], problem, text))
         except Exception as exc:  # anything at all -> the notebook; the clock must keep going
+            if offering:
+                self.offerings.put_back(offering)
             reason = getattr(exc, "reason", None) or exc
             self.last_error = str(reason)
             self.status = "offline"
@@ -336,6 +470,10 @@ class Author(threading.Thread):
             return self.from_notebook(moment, self.last_error)
         elapsed = time.time() - started
         stats.pop("first_token_at", None)
+        confidence = word_confidences(text, stats.pop("token_probs", None))
+        if offering and not talkback.uses_word(text, offering):
+            self.offerings.put_back(offering)
+            offering = None
         tps = stats.get("tokens_per_second")
         self.status = "online"
         self.last_error = None
@@ -350,10 +488,15 @@ class Author(threading.Thread):
             temperature=self.cfg["temperature"],
             senses=[{"label": o["label"], "fact": o["fact"]} for o in observations],
             attempts=attempt + 1,
+            confidence=confidence,
+            offering=offering,
+            thing=None if offering else thing,
             soc_temp=temp_c,
             written_at=datetime.now().isoformat(timespec="seconds"),
         )
-        log("{} {:.1f}s  {} {}".format(entry["key"], elapsed, entry["lead"], text))
+        self.remember(moment, text)
+        log("{} {:.1f}s  {} {}{}".format(entry["key"], elapsed, entry["lead"], text,
+                                        '  [word: {}]'.format(offering) if offering else ""))
         return entry
 
     def run(self):
@@ -394,6 +537,8 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 
 def make_handler(cfg, author):
+    say_url = talkback.lan_url(cfg)
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):  # silence the access log
             pass
@@ -413,7 +558,28 @@ def make_handler(cfg, author):
                 return self.api_now()
             if url.path == "/api/book":
                 return self.api_book(parse_qs(url.query))
+            if url.path == "/say":
+                return self.static("/say.html")
             return self.static(url.path)
+
+        def do_POST(self):
+            if urlparse(self.path).path != "/api/say" or not author.offerings:
+                return self.send_json({"ok": False, "message": "Not here."}, 404)
+            length = min(int(self.headers.get("Content-Length") or 0), 1024)
+            body = self.rfile.read(length).decode("utf-8", "replace")
+            try:
+                word = json.loads(body).get("word", "")
+            except (ValueError, AttributeError):
+                word = (parse_qs(body).get("word") or [""])[0]
+            ok, message, position = author.offerings.offer(word, self.client_address[0])
+            if not ok:
+                return self.send_json({"ok": False, "message": message})
+            # Next minute's sentence is usually written already, so the word lands after it.
+            now = datetime.now().replace(second=0, microsecond=0)
+            ahead = 1 if author.get(minute_key(now + timedelta(minutes=1))) else 0
+            when = now + timedelta(minutes=position + ahead)
+            self.send_json({"ok": True, "word": message, "at": when.strftime("%H:%M"),
+                            "lead": timewords.lead(when.hour, when.minute)[0]})
 
         def api_now(self):
             now = datetime.now()
@@ -432,6 +598,9 @@ def make_handler(cfg, author):
                 "outside": [o["label"] for o in author.observe(now, fetch=False)],
                 "night": in_night(cfg, now.hour),
                 "accent": cfg["accent"],
+                "say_url": say_url if author.offerings else None,
+                "words_waiting": author.offerings.waiting() if author.offerings else 0,
+                "watts": cfg.get("watts", 10),
             })
 
         def api_book(self, query):
@@ -486,6 +655,8 @@ def main():
     author.start()
     server = ThreadingHTTPServer((cfg["host"], cfg["port"]), make_handler(cfg, author))
     log("serving http://{}:{}/".format(cfg["host"], cfg["port"]))
+    if author.offerings:
+        log("talk-back page:", talkback.lan_url(cfg))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

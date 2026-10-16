@@ -12,6 +12,13 @@ The display doesn't hide how it works:
 - **Bottom rail:** which model wrote the line, how many tokens it took, how fast they came, and how many seconds before its minute the sentence was written.
 - **The sentence** types in at roughly the pace the model produced it. A hairline sweeps across each minute, and a ribbon along the bottom fills as the day passes.
 
+Four things make it more than a clock:
+
+- **Confidence as type.** Each word is drawn as solid as the model was sure of it. Where the model was guessing, words go faint and shake slightly, so you can see where the machine was unsure.
+- **Decay.** "This sentence exists for one minute" is something you watch. From about 24 s in, the letters erode to a ghost, least-certain words first.
+- **Talk back.** A QR code in the corner opens a page on the lab network where anyone can give the clock one word. The clock has to write it into one of its next sentences, underlined in the accent colour, and the page tells you when to look up. A blocklist and a one-word-a-minute limit keep the wall kind.
+- **The midnight ritual.** At 23:59:12 the day's sentences stream past, then the whole day appears at once as a wall of tiny type with a tally: sentences, words, tokens, time spent thinking, and roughly how much electricity it took. Then everything clears, the clock forgets, and at 00:00 "At midnight," starts a new day.
+
 Every sentence is saved, so the clock writes a 1,440-sentence book each day; `/book.html` shows it.
 
 ## How it works
@@ -21,7 +28,9 @@ clock_server.py   ── background "author" thread ──►  Ollama (or llama.
    │                writes the NEXT minute's line        gemma3:1b on CPU
    │                while this one is showing
    ├─ senses.py  → sun position (offline) + weather (Open-Meteo)
+   ├─ talkback.py→ word filter + queue for the /say page (blocklist.txt)
    ├─ /api/now   → the current sentence + stats (JSON)
+   ├─ /say       → the talk-back page phones open from the QR code
    ├─ /api/book  → every sentence from a given day
    └─ static/    → the wall display (index.html) and the day's book (book.html)
         ▲
@@ -31,6 +40,8 @@ clock_server.py   ── background "author" thread ──►  Ollama (or llama.
 - **No dependencies.** Standard library only, Python 3.6+, so it runs on the Nano's stock JetPack 4 Python. Nothing to `pip install`.
 - **Never stalls.** A 1B model on the Nano's CPU takes roughly 10–30 s per sentence, so the server writes each minute's line during the minute before. If the model is down or slow, the clock falls back to a hand-written notebook of lines and keeps going.
 - **Grounded in observations.** Sun and weather arrive as plain facts in the prompt ("The sun has just set; dusk is settling outside the window."). A 1B model still slips in rain on a clear day or a setting sun at 2 pm, so each observation lists words it rules out, and the clock asks once more when a sentence uses one. In testing, about 1 sentence in 24 still gets through.
+- **Remembers without copying.** Showing a 1B model its earlier sentences makes it copy them: in testing, 9 of 12 came out as near-repeats. So memory steers instead. Each minute the clock picks something in the room it hasn't mentioned lately (the whiteboard, a 3D printer, a forgotten jacket) and nudges the model towards it. If a sentence still mostly repeats an earlier one, the clock asks once more. In testing that gave 12 different sentences out of 12.
+- **Confidence comes from the model itself.** Ollama (and llama.cpp) can report the probability of each token. The page uses the least likely token in each word. Older backends that don't report it just get plain type.
 - **The time is always right.** The model only writes what comes after the comma. The clock sets the opening words itself, so the model can't get the time wrong or paraphrase it away. If the server stops, the page keeps showing the correct time words on its own instead of freezing on an old minute.
 
 ## Run it on a laptop
@@ -43,7 +54,9 @@ ollama pull gemma3:1b
 python3 clock_server.py
 ```
 
-Open http://127.0.0.1:8340 for the clock, and http://127.0.0.1:8340/book.html for today's book.
+Open http://127.0.0.1:8340 for the clock, http://127.0.0.1:8340/say for the talk-back page, and http://127.0.0.1:8340/book.html for today's book. To rehearse the midnight ritual at any time, open http://127.0.0.1:8340/?ritual=1.
+
+The server listens on the lab network (`0.0.0.0`) so phones can reach `/say`. Set `"host": "127.0.0.1"` in `config.json` to keep it local, or `"talk_back": false` to turn talk-back off.
 
 ## Put it on the wall (original Jetson Nano, JetPack 4)
 
@@ -96,6 +109,11 @@ Edit `config.json` (the setup script creates it; on a laptop, copy `config.examp
 | `weather` | `false` to skip Open-Meteo, e.g. if the Nano has no internet. Sun position still works offline. |
 | `place` | What the clock calls the room (default "the computer science lab"). |
 | `prompt` | What the model is asked to write. `{place}` is filled in. |
+| `things` | Things in the room the clock wanders between, one per minute. Fill it with what's actually in your lab. |
+| `talk_back` | `false` turns off the QR code and the `/say` page. |
+| `public_url` | The address the QR code points to, if the auto-detected one is wrong (e.g. `"http://authorclock.local:8340"`). |
+| `blocklist` | Path to the word blocklist (default [blocklist.txt](blocklist.txt)). |
+| `watts` | The Nano's power draw while thinking, for the midnight tally (default 10). |
 | `temperature` | Higher means stranger sentences. |
 | `night_hours` | The display dims between these hours. |
 | `accent` | The highlight colour. |
@@ -113,14 +131,14 @@ The env vars `AUTHOR_CLOCK_MODEL`, `AUTHOR_CLOCK_BACKEND_URL` and `AUTHOR_CLOCK_
 
 Directions for making it more speculative, not built yet:
 
-- **The guessing clock.** Fade the words the model was unsure of, briefly show the words that almost went in their place, and state on the rail that the model's knowledge stops years before the minute it's describing. It shows passers-by that the "author" is a probability machine.
+- **The roads not taken.** Briefly show the words that almost went in a word's place ("a student / a server / a ghost adjusts…"), and state on the rail that the model's knowledge stops years before the minute it's describing.
 - **The parallel lab.** Each midnight, pick an alternate premise ("the timeline where computers run on light") and describe this lab, at this time and in this weather, in that world all day. The daily book becomes a novella.
 - **The archive from 2126.** Write each sentence as a record a future historian recovered about this minute, with a catalogue number, a confidence score and the odd illegible word.
-- **Talking back.** A QR code by the screen where anyone in the lab can leave one word for the clock to weave into the next minute.
 
 ## Repo
 
-- `clock_server.py`, `timewords.py`, `senses.py`, `static/`, `deploy/` — the current clock
+- `clock_server.py`, `timewords.py`, `senses.py`, `talkback.py`, `blocklist.txt`, `static/`, `deploy/` — the current clock
+- `static/vendor/qrcode.js` — [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) by Kazuhiko Arase (MIT), vendored so the QR code works offline
 - `poetic_clock.py`, `jetson_display_clock.py` — the original Tkinter versions (need `pip install -r requirements.txt`), kept for reference
 
 ## License

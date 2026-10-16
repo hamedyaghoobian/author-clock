@@ -21,6 +21,7 @@
   .entry small { display: block; margin-top: .3rem; font: 400 11px/1.5 var(--mono);
                  letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
   .notebook-entry p { color: var(--dim); }
+  .entry .gift { color: var(--accent); text-decoration: underline; text-underline-offset: .15em; }
 </style>
 </head>
 <body>
@@ -36,6 +37,13 @@
 (function () {
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function iso(d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  // Underline the word someone in the lab gave the clock.
+  function gift(e) {
+    var text = esc(e.text);
+    if (!e.offering) return text;
+    var stem = e.offering.length > 4 ? e.offering.slice(0, -1) : e.offering;
+    return text.replace(new RegExp("\\b(" + stem.replace(/[^a-z'-]/g, "") + "[a-z'-]*)", "i"), '<span class="gift">$1</span>');
+  }
   var date = new URLSearchParams(location.search).get("date") || iso(new Date());
   function shift(days) { var d = new Date(date + "T12:00:00"); d.setDate(d.getDate() + days); return "?date=" + iso(d); }
   document.getElementById("prev").href = shift(-1);
@@ -49,8 +57,9 @@
     document.getElementById("entries").innerHTML = book.entries.map(function (e) {
       var lead = esc(e.lead).replace(esc(e.phrase), '<span class="when">' + esc(e.phrase) + "</span>");
       return '<div class="entry' + (e.source === "notebook" ? " notebook-entry" : "") + '">' +
-        "<time>" + e.key.slice(11) + "</time><p>" + lead + " " + esc(e.text) +
-        "<small>" + (e.source === "model" ? esc(e.model) : "the notebook") + "</small></p></div>";
+        "<time>" + e.key.slice(11) + "</time><p>" + lead + " " + gift(e) +
+        "<small>" + (e.source === "model" ? esc(e.model) : "the notebook") +
+        (e.offering ? " · word from the lab: " + esc(e.offering) : "") + "</small></p></div>";
     }).join("");
   });
 })();

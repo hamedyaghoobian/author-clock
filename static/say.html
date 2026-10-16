@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Give the Clock a Word</title>
+<link rel="stylesheet" href="clock.css">
+<style>
+  html, body { height: auto; min-height: 100%; overflow: auto; cursor: auto; }
+  .say { max-width: 30rem; margin: 0 auto; padding: 2.5rem 16px 4rem; }
+  .say header { font: 400 12px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+                color: var(--dim); border-bottom: 1px solid var(--faint); padding-bottom: .9rem; }
+  .say h1 { font: italic 400 2.4rem/1.1 var(--serif); margin: 2rem 0 .8rem; }
+  .say .intro { font: 400 1.1rem/1.5 var(--serif); color: var(--dim); margin: 0 0 2rem; }
+  .say form { display: flex; gap: .6rem; }
+  .say input { flex: 1; min-width: 0; font: 400 1.6rem var(--serif); color: var(--ink); background: transparent;
+               border: 0; border-bottom: 2px solid var(--accent); padding: .3rem 0; outline: none;
+               border-radius: 0; }
+  .say button { font: 600 13px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--bg);
+                background: var(--accent); border: 0; padding: 0 1.1rem; cursor: pointer; }
+  .say button:disabled { opacity: .5; }
+  .say .reply { min-height: 5rem; margin-top: 1.8rem; font: 400 1.15rem/1.5 var(--serif); }
+  .say .reply .when { color: var(--accent); font-style: italic; }
+  .say .reply.no { color: var(--dim); }
+  .say .now { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--faint);
+              font: 400 1rem/1.5 var(--serif); color: var(--dim); }
+  .say .now .k { display: block; font: 400 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; margin-bottom: .4rem; }
+</style>
+</head>
+<body>
+<div class="say">
+  <header>Author Clock — talk back</header>
+  <h1>Give the clock a word.</h1>
+  <p class="intro">It will write your word into one of its next sentences, and the sentence goes into
+    today's book. One word, once a minute. Be kind: it's on the lab wall.</p>
+  <form id="form" autocomplete="off">
+    <input id="word" name="word" maxlength="24" autocapitalize="none" spellcheck="false"
+           placeholder="nebula" aria-label="Your word" required>
+    <button id="send">Give</button>
+  </form>
+  <div class="reply" id="reply" aria-live="polite"></div>
+  <div class="now" id="now"></div>
+</div>
+<script>
+(function () {
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  var form = document.getElementById("form"), input = document.getElementById("word"),
+      send = document.getElementById("send"), reply = document.getElementById("reply");
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    send.disabled = true;
+    fetch("/api/say", { method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ word: input.value }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res.ok) {
+          reply.className = "reply";
+          reply.innerHTML = "Thank you. Look up at about <span class=\"when\">" + esc(res.at) + "</span>: " +
+            esc(res.lead) + " … <em>" + esc(res.word) + "</em> …";
+          input.value = "";
+        } else {
+          reply.className = "reply no";
+          reply.textContent = res.message;
+        }
+      })
+      .catch(function () { reply.className = "reply no"; reply.textContent = "Couldn't reach the clock."; })
+      .then(function () { send.disabled = false; });
+  });
+
+  function showNow() {
+    fetch("/api/now", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (s) {
+      var e = s.entry;
+      document.getElementById("now").innerHTML = '<span class="k">on the wall now</span>' +
+        esc(e.lead) + " " + esc(e.text || "…") +
+        (s.words_waiting ? '<span class="k" style="margin-top:.8rem">' + s.words_waiting +
+          (s.words_waiting === 1 ? " word" : " words") + " waiting</span>" : "");
+    }).catch(function () {});
+  }
+  showNow();
+  setInterval(showNow, 15000);
+})();
+</script>
+</body>
+</html>

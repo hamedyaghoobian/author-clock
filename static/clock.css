@@ -177,3 +177,107 @@ html, body {
   transform: scaleX(0);
   background: var(--accent);
 }
+
+/* ---- confidence: faint and shaky where the model was guessing ----------------- */
+
+.sentence .word.on { opacity: calc(0.28 + 0.72 * var(--c, 1)); }
+.sentence .word.unsure.on { display: inline-block; animation: shake 0.9s ease-in-out infinite; }
+@keyframes shake {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-0.012em, 0.01em); }
+  50% { transform: translate(0.01em, -0.012em); }
+  75% { transform: translate(0.012em, 0.012em); }
+}
+.sentence .l { display: inline; }
+
+/* the word someone in the lab gave the clock */
+.sentence .word.gift.on {
+  opacity: 1;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 0.04em;
+  text-underline-offset: 0.12em;
+}
+
+/* ---- talk-back QR ------------------------------------------------------------------ */
+
+.qr {
+  position: absolute;
+  right: 0;
+  bottom: 3vw;
+  width: 7vw;
+  font: 400 clamp(9px, 0.7vw, 16px)/1.35 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  text-align: right;
+}
+.qr-code svg { display: block; width: 100%; height: auto; }
+.qr .qr-bg { fill: var(--ink); opacity: 0.9; }
+.qr .qr-fg { fill: var(--bg); }
+.qr p { margin: 0.6em 0 0; }
+.qr .qr-url { text-transform: none; color: var(--faint); font-size: 0.85em; word-break: break-all; }
+
+/* ---- the midnight ritual ------------------------------------------------------------ */
+
+.ritual {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  z-index: 10;
+  background: var(--bg);
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.5s ease;
+}
+.ritual.on { opacity: 1; }
+.ritual.clear { opacity: 0; transition: opacity 4s ease-in; }
+
+.r-scroll {
+  position: absolute;
+  left: 18vw;
+  right: 18vw;
+  top: 0;
+  font: 400 1.5vw/1.45 var(--serif);
+  color: var(--ink);
+}
+.r-scroll p { margin: 0 0 0.6em; }
+.r-scroll .k { font: 400 0.7em var(--mono); color: var(--accent); letter-spacing: 0.06em; margin-right: 0.6em; }
+
+.r-wall {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  padding: 1vw;
+  font-family: var(--serif);
+  line-height: 1.2;
+  color: var(--dim);
+  opacity: 0;
+  transition: opacity 2s ease;
+  word-break: break-all;
+}
+.r-wall p { margin: 0; }
+
+.r-tally {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 62vw;
+  transform: translate(-50%, -50%);
+  padding: 3vw 3.5vw;
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--faint);
+  font: 400 1.6vw/1.45 var(--serif);
+  color: var(--ink);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 2s ease 1.2s;
+}
+.r-tally p { margin: 0.35em 0; }
+.r-tally .big { font-size: 4.4vw; line-height: 1.1; font-style: italic; color: var(--accent); }
+.r-tally .k { font: 400 0.9vw var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.r-tally .forget { margin-top: 1.6em; }
+.r-tally em { color: var(--accent); }
+
+.ritual.wall .r-scroll { opacity: 0; transition: opacity 1s; }
+.ritual.wall .r-wall { opacity: 1; }
+.ritual.wall .r-tally { opacity: 1; }

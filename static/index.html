@@ -24,6 +24,11 @@
     <div class="ghost" id="ghost" aria-hidden="true"></div>
     <p class="sentence" id="sentence" aria-live="polite"></p>
     <p class="sentence measure" id="measure" aria-hidden="true"></p>
+    <div class="qr" id="qr" style="display:none">
+      <div class="qr-code" id="qrcode"></div>
+      <p>give the clock<br>a word</p>
+      <p class="qr-url" id="qrurl"></p>
+    </div>
   </main>
 
   <footer class="rail bottom">
@@ -31,11 +36,14 @@
     <div class="cell right" id="aside">this sentence exists for one minute</div>
   </footer>
 
+  <div class="ritual" id="ritual" aria-hidden="true"></div>
+
   <div class="ribbon" aria-hidden="true">
     <div class="day" id="day"></div>
     <div class="minute" id="minute"></div>
   </div>
 </div>
+<script src="vendor/qrcode.js"></script>
 <script src="clock.js"></script>
 </body>
 </html>
