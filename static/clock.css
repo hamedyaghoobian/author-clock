@@ -1,4 +1,4 @@
-/* Author Clock — wall display. Tuned for a 1920x1080 panel driven by a Jetson Nano:
+/* Author Clock — wall display. Tuned for a 1920x1080 panel driven by a Jetson Nano or Raspberry Pi:
    only opacity/transform animate, nothing blurs, nothing repaints every frame. */
 
 :root {

@@ -2,7 +2,7 @@
 
 A wall clock that doesn't show the time. It writes it.
 
-Every minute, a small language model running on a Jetson Nano on the wall of the computer science lab writes one sentence that starts with the time, *"At quarter past two in the afternoon, …"*. Each sentence is on screen for sixty seconds and is never shown again.
+Every minute, a small language model running on a Jetson Nano or a Raspberry Pi on the wall of the computer science lab writes one sentence that starts with the time, *"At quarter past two in the afternoon, …"*. Each sentence is on screen for sixty seconds and is never shown again.
 
 It knows what's happening outside the window. From the lab's coordinates (Allentown, PA by default) it works out where the sun is (dawn, golden hour, dusk, night) with no internet, and it fetches the current weather from [Open-Meteo](https://open-meteo.com/) (free, no API key). Those observations go into the prompt, so a sentence at dusk in the rain reads differently from one on a bright morning.
 
@@ -34,11 +34,11 @@ clock_server.py   ── background "author" thread ──►  Ollama (or llama.
    ├─ /api/book  → every sentence from a given day
    └─ static/    → the wall display (index.html) and the day's book (book.html)
         ▲
-   Chromium in kiosk mode on the Nano's screen
+   Chromium in kiosk mode on the board's screen
 ```
 
-- **No dependencies.** Standard library only, Python 3.6+, so it runs on the Nano's stock JetPack 4 Python. Nothing to `pip install`.
-- **Never stalls.** A 1B model on the Nano's CPU takes roughly 10–30 s per sentence, so the server writes each minute's line during the minute before. If the model is down or slow, the clock falls back to a hand-written notebook of lines and keeps going.
+- **No dependencies.** Standard library only, Python 3.6+, so it runs on the Nano's stock JetPack 4 Python and on Raspberry Pi OS. Nothing to `pip install`.
+- **Never stalls.** A 1B model on a small board's CPU takes roughly 10–30 s per sentence, so the server writes each minute's line during the minute before. If the model is down or slow, the clock falls back to a hand-written notebook of lines and keeps going.
 - **Grounded in observations.** Sun and weather arrive as plain facts in the prompt ("The sun has just set; dusk is settling outside the window."). A 1B model still slips in rain on a clear day or a setting sun at 2 pm, so each observation lists words it rules out, and the clock asks once more when a sentence uses one. In testing, about 1 sentence in 24 still gets through.
 - **Remembers without copying.** Showing a 1B model its earlier sentences makes it copy them: in testing, 9 of 12 came out as near-repeats. So memory steers instead. Each minute the clock picks something in the room it hasn't mentioned lately (the whiteboard, a 3D printer, a forgotten jacket) and nudges the model towards it. If a sentence still mostly repeats an earlier one, the clock asks once more. In testing that gave 12 different sentences out of 12.
 - **Confidence comes from the model itself.** Ollama (and llama.cpp) can report the probability of each token. The page uses the least likely token in each word. Older backends that don't report it just get plain type.
@@ -58,35 +58,49 @@ Open http://127.0.0.1:8340 for the clock, http://127.0.0.1:8340/say for the talk
 
 The server listens on the lab network (`0.0.0.0`) so phones can reach `/say`. Set `"host": "127.0.0.1"` in `config.json` to keep it local, or `"talk_back": false` to turn talk-back off.
 
-## Put it on the wall (original Jetson Nano, JetPack 4)
+## Put it on the wall
+
+It runs on an original **Jetson Nano** (4 GB, JetPack 4) or a **Raspberry Pi 4 or 5** with 4 GB or more. On both, the model runs on the CPU (Ollama doesn't use the Nano's GPU on JetPack 4). The Pi's newer CPU cores are faster, and current Raspberry Pi OS makes the setup easier. Neither board has been timed yet.
+
+The same two commands set up either board:
 
 ```bash
 git clone https://github.com/hamedyaghoobian/author-clock.git
 ```
 
 ```bash
-cd author-clock && ./deploy/setup-jetson.sh
+cd author-clock && ./deploy/setup.sh
 ```
 
-The script:
+[deploy/setup.sh](deploy/setup.sh) detects the board (or set `BOARD=pi` / `BOARD=jetson`), then:
 
 - installs Chromium (falling back to Firefox) and fonts
-- sets the timezone to `America/New_York` (override with `TIMEZONE=...`) and the Nano to max-performance mode
+- sets the timezone to `America/New_York` (override with `TIMEZONE=...`)
 - pulls the model (override with `MODEL=...`)
-- creates `config.json` from `config.example.json`, with Allentown's coordinates already filled in
+- creates `config.json` from `config.example.json`, with Allentown's coordinates and the board's power draw for the midnight tally already filled in
 - installs the server as a systemd service and adds a kiosk autostart entry ([deploy/kiosk.sh](deploy/kiosk.sh): no screen blanking, no cursor, no crash bubbles)
 
-Turn on automatic login and reboot.
+### On a Jetson Nano
 
-Tips for the 4 GB board:
+The script also puts the Nano in max-performance mode (10 W). Afterwards, turn on automatic login (Settings > Users) and reboot. If Ollama won't install on JetPack 4, see Plan B below.
 
-- Run the desktop with as little else open as possible. The model and Chromium share the 4 GB with the GPU, so there isn't much headroom. A 1B model at 4-bit takes about 1 GB.
+### On a Raspberry Pi
+
+- **Use 64-bit Raspberry Pi OS** (with desktop). Ollama only runs on 64-bit ARM; the script stops with a message on a 32-bit system.
+- The script installs Ollama with its official installer.
+- Current Raspberry Pi OS uses Wayland, but the kiosk's no-blanking and hidden-cursor settings need X11. So the script switches the Pi to X11 and turns on desktop autologin through `raspi-config`. If either step fails, it tells you where to do it by hand.
+- Reboot when it's done: `sudo reboot`.
+- **Keep it cool.** Writing a sentence every minute keeps the CPU busy, and a Pi 4 without a heatsink or fan slows down when it gets hot. The top rail shows the chip temperature. A small case fan is worth it.
+
+Tips for 4 GB boards:
+
+- Run the desktop with as little else open as possible. The model and Chromium share the 4 GB (with the GPU on the Nano), so there isn't much headroom. A 1B model at 4-bit takes about 1 GB.
 - Set `OLLAMA_MAX_LOADED_MODELS=1` and `OLLAMA_NUM_PARALLEL=1` for the Ollama service. The server already asks Ollama to keep the model loaded between minutes (`keep_alive`), because reloading it every minute would be too slow.
 - If Chromium flickers, add `--disable-gpu` to the flags in `kiosk.sh`.
 
 ### Plan B: llama.cpp instead of Ollama
 
-Recent Ollama builds may not run on Ubuntu 18.04 / JetPack 4. The server also speaks the OpenAI-compatible API, so you can build [llama.cpp](https://github.com/ggml-org/llama.cpp) on the Nano (CPU build; Ubuntu 18.04 needs `gcc-8`/`g++-8` and a newer CMake), download a `gemma-3-1b-it` Q4 GGUF, and run:
+This is only needed on the Jetson Nano: recent Ollama builds may not run on Ubuntu 18.04 / JetPack 4. The server also speaks the OpenAI-compatible API, so you can build [llama.cpp](https://github.com/ggml-org/llama.cpp) on the Nano (CPU build; Ubuntu 18.04 needs `gcc-8`/`g++-8` and a newer CMake), download a `gemma-3-1b-it` Q4 GGUF, and run:
 
 ```bash
 ./build/bin/llama-server -m gemma-3-1b-it-Q4_K_M.gguf --port 8080 -c 1024
@@ -104,16 +118,16 @@ Edit `config.json` (the setup script creates it; on a laptop, copy `config.examp
 
 | key | what it does |
 | --- | --- |
-| `model` | Any Ollama model tag. `gemma3:1b` is the default; `qwen2.5:1.5b` and `llama3.2:1b` also fit on the Nano. For a reasoning model (e.g. qwen3), also set `"think": false`. |
+| `model` | Any Ollama model tag. `gemma3:1b` is the default; `qwen2.5:1.5b` and `llama3.2:1b` also fit on a 4 GB board. For a reasoning model (e.g. qwen3), also set `"think": false`. |
 | `latitude`, `longitude` | Where the lab is (Allentown, PA in the example config). The sun and weather senses stay off when these are `null`. |
-| `weather` | `false` to skip Open-Meteo, e.g. if the Nano has no internet. Sun position still works offline. |
+| `weather` | `false` to skip Open-Meteo, e.g. if the board has no internet. Sun position still works offline. |
 | `place` | What the clock calls the room (default "the computer science lab"). |
 | `prompt` | What the model is asked to write. `{place}` is filled in. |
 | `things` | Things in the room the clock wanders between, one per minute. Fill it with what's actually in your lab. |
 | `talk_back` | `false` turns off the QR code and the `/say` page. |
 | `public_url` | The address the QR code points to, if the auto-detected one is wrong (e.g. `"http://authorclock.local:8340"`). |
 | `blocklist` | Path to the word blocklist (default [blocklist.txt](blocklist.txt)). |
-| `watts` | The Nano's power draw while thinking, for the midnight tally (default 10). |
+| `watts` | The board's power draw while thinking, for the midnight tally. Setup writes 10 for a Nano, 6 for a Pi 4, 9 for a Pi 5. |
 | `temperature` | Higher means stranger sentences. |
 | `night_hours` | The display dims between these hours. |
 | `accent` | The highlight colour. |
@@ -124,7 +138,7 @@ The env vars `AUTHOR_CLOCK_MODEL`, `AUTHOR_CLOCK_BACKEND_URL` and `AUTHOR_CLOCK_
 
 - **More senses** ([senses.py](senses.py) shows the pattern: return a short label and a plain fact). Next candidates: the class schedule, the clock's own recent sentences, a USB webcam for light, motion and occupancy, a mic level, a door counter, or the room's CO₂.
 - **The book.** Print a day's sentences as a zine. Compare a Tuesday with a Saturday. Track how often the model mentions coffee.
-- **Two clocks arguing.** A second Nano that replies to the first one's sentence.
+- **Two clocks arguing.** A second board that replies to the first one's sentence.
 - **Model swap day.** Run a different model each week and label it on the rail. Students vote on which one "writes time" best.
 
 ## Where it could go next
